@@ -1,0 +1,42 @@
+# WordPress
+/wp-admin/
+/wp-includes/
+/wp-content/uploads/
+/wp-content/upgrade/
+/wp-content/backup-db/
+/wp-content/cache/
+/wp-config.php
+wp-config.php
+/sitemap.xml
+/sitemap.xml.gz
+
+# Arquivos de Sistema e IDE
+.DS_Store
+.idea/
+.vscode/
+Thumbs.db
+desktop.ini
+
+# Arquivos de Log e Temporários
+*.log
+debug.log
+*.tmp
+*.temp
+
+# Dependências de Pacotes
+node_modules/
+vendor/
+
+# Arquivos de Build/Distribuição
+/dist/
+/build/
+
+# Arquivos Comprimidos
+*.zip
+*.rar
+*.tar
+*.tar.gz
+
+# Arquivos de configuração local (se aplicável)
+.env
+wp-config-local.php
