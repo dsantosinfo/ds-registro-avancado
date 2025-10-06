@@ -124,10 +124,10 @@ final class DS_Registro_Avancado_Plugin {
         $phone_number = $this->normalize_phone($raw_phone);
         if (strlen($phone_number) < 12) { wp_send_json_error(['message' => 'Número de telefone inválido.'], 400); return; }
         $ip_address = $this->get_ip_address();
-        if ($this->is_rate_limited($ip_address)) { wp_send_json_error(['message' => 'Você fez muitas tentativas. Por favor, aguarde alguns minutos.'], 429); return; }
+        if ($this->is_rate_limited($ip_address)) { wp_send_json_error(['message' => 'Você fez muitas tentativas. Por favor, aguarde 3 minutos.'], 429); return; }
         $otp_code = wp_rand(100000, 999999);
         $message  = "Seu código de verificação é: {$otp_code}";
-        set_transient('ds_otp_' . $phone_number, $otp_code, 15 * MINUTE_IN_SECONDS);
+        set_transient('ds_otp_' . $phone_number, $otp_code, 3 * MINUTE_IN_SECONDS);
         $this->log_rate_limit_attempt($ip_address);
         // NOTA: A lógica de envio do WhatsApp será externalizada em um passo futuro.
         $result = $this->send_whatsapp_message($phone_number, $message);
@@ -222,7 +222,7 @@ final class DS_Registro_Avancado_Plugin {
     private function send_whatsapp_message(string $number, string $message) { $api_url = get_option('conector_whatsapp_url'); $api_key = get_option('conector_whatsapp_apikey'); $instance = get_option('conector_whatsapp_instance'); if (empty($api_url) || empty($api_key) || empty($instance)) return new WP_Error('conector_not_configured', 'Configurações da API não encontradas.'); $full_url = rtrim($api_url, '/') . '/message/sendText/' . $instance; $response = wp_remote_post($full_url, ['timeout' => 30, 'headers' => ['Content-Type' => 'application/json', 'apikey' => $api_key], 'body' => wp_json_encode(['number' => $number, 'text' => $message]),]); if (is_wp_error($response)) return $response; $code = wp_remote_retrieve_response_code($response); if ($code === 200 || $code === 201) return true; $error = json_decode(wp_remote_retrieve_body($response), true); return new WP_Error('api_error', "Erro na API ($code): " . ($error['message'] ?? 'Erro desconhecido.')); }
     private function normalize_phone(string $raw_phone): string { $digits_only = preg_replace('/[^0-9]/', '', $raw_phone); if (str_starts_with($digits_only, '55')) { $digits_only = substr($digits_only, 2); } return '55' . $digits_only; }
     private function is_rate_limited(string $ip): bool { return (get_transient('ds_otp_limit_' . $ip) ?: 0) >= 5; }
-    private function log_rate_limit_attempt(string $ip): void { $key = 'ds_otp_limit_' . $ip; set_transient($key, (get_transient($key) ?: 0) + 1, 15 * MINUTE_IN_SECONDS); }
+    private function log_rate_limit_attempt(string $ip): void { $key = 'ds_otp_limit_' . $ip; set_transient($key, (get_transient($key) ?: 0) + 1, 3 * MINUTE_IN_SECONDS); }
     private function get_ip_address(): string { foreach (['HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $key) { if (!empty($_SERVER[$key])) { foreach (explode(',', $_SERVER[$key]) as $ip) { if (filter_var(trim($ip), FILTER_VALIDATE_IP)) return trim($ip); } } } return 'unknown'; }
     private function get_field_map(array $fields): array { $map = []; foreach ($fields as $field) { if (!is_string($field->cssClass)) continue; if (str_contains($field->cssClass, 'ds-reg-email-field')) $map['email'] = $field->id; if (str_contains($field->cssClass, 'ds-reg-password-field')) $map['password'] = $field->id; if (str_contains($field->cssClass, self::PHONE_CSS)) $map['phone'] = $field->id; if (str_contains($field->cssClass, 'ds-reg-name-field') && is_array($field->inputs)) { foreach ($field->inputs as $input) { if ($input['label'] === 'First') $map['name.first'] = $input['id']; if ($input['label'] === 'Last') $map['name.last'] = $input['id']; } } } return $map; }
 }
