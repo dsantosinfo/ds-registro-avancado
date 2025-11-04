@@ -1,0 +1,1 @@
+// Removido - não é mais necessário com campos do WooCommerce

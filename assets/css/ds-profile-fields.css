@@ -1,0 +1,33 @@
+/* Estilos para campos de perfil */
+.ds-timezone-field select,
+.ds-country-field select {
+    font-size: 14px;
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+    transition: border-color 0.3s ease;
+}
+
+.ds-timezone-field select:focus,
+.ds-country-field select:focus {
+    border-color: #0073aa;
+    outline: none;
+    box-shadow: 0 0 5px rgba(0, 115, 170, 0.3);
+}
+
+/* Indicador visual para campos obrigatórios */
+.ds-country-field .gfield_label::after,
+.ds-timezone-field .gfield_label::after {
+    content: " *";
+    color: #c02b0a;
+    font-weight: bold;
+}
+
+/* Melhorar aparência em dispositivos móveis */
+@media (max-width: 768px) {
+    .ds-timezone-field select,
+    .ds-country-field select {
+        font-size: 16px; /* Evita zoom no iOS */
+        padding: 12px;
+    }
+}
