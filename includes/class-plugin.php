@@ -228,13 +228,22 @@ final class DS_Registro_Avancado_Plugin {
      } else { wp_send_json_error(['message' => 'O código de verificação está incorreto.']); // [cite: 1933]
      } }
     public function enqueue_registration_form_scripts(array $form, bool $is_ajax): void { $reg_form_id = $this->settings['reg_form_id'] ?? 0; // [cite: 1934]
-     if ($form['id'] != $reg_form_id) { return; } wp_enqueue_script( 'ds-registro-otp-js', DS_REGISTRO_AVANCADO_URL . 'assets/js/ds-registro-otp.js', ['jquery', 'gform_gravityforms'], '4.2.0', true ); // [cite: 1935]
+     if ($form['id'] != $reg_form_id) { return; } wp_enqueue_script( 'ds-registro-otp-js', DS_REGISTRO_AVANCADO_URL . 'assets/js/ds-registro-otp.js', ['jquery', 'gform_gravityforms'], time(), true );
      wp_localize_script('ds-registro-otp-js', 'ds_otp_vars', [ 'ajax_url'    => admin_url('admin-ajax.php'), 'nonce'       => wp_create_nonce(self::OTP_NONCE), 'form_id'     => $reg_form_id, 'field_ids' => ['phone' => $this->settings['reg_phone_field'] ?? 0, 'code' => $this->settings['reg_otp_field'] ?? 0], 'css_classes' => ['phone' => self::PHONE_CSS, 'code' => self::CODE_CSS, 'send_button' => 'ds-otp-send-button', 'verify_button' => 'ds-otp-verify-button', 'status'  => 'ds-otp-status-div'], 'i18n'        => ['sending' => 'Enviando...', 'sent' => 'Reenviar Código', 'verifying' => 'Verificando...', 'verified' => 'Verificado', 'error' => 'Erro.', 'invalidPhone' => 'Telefone inválido.', 'wait' => 'Aguarde...'], ]); // [cite: 1936]
      }
     public function ajax_send_otp(): void { if (!check_ajax_referer(self::OTP_NONCE, 'security', false)) { wp_send_json_error(['message' => 'Falha na verificação de segurança.'], 403); // [cite: 1937]
      return; } $raw_phone = isset($_POST['phone']) ? sanitize_text_field(wp_unslash($_POST['phone'])) : ''; if (empty($raw_phone)) { wp_send_json_error(['message' => 'Número de telefone é obrigatório.'], 400); // [cite: 1938]
-     return; } $phone_number = $this->normalize_phone($raw_phone); if (strlen($phone_number) < 12) { wp_send_json_error(['message' => 'Número de telefone inválido.'], 400); return; // [cite: 1939]
-     } $ip_address = $this->get_ip_address(); if ($this->is_rate_limited($ip_address)) { wp_send_json_error(['message' => 'Você fez muitas tentativas. Por favor, aguarde alguns minutos.'], 429); return; // [cite: 1940]
+     return; } $phone_number = $this->normalize_phone($raw_phone); 
+ 
+     
+     // Validar se é um número WhatsApp válido
+     $whatsapp_check = $this->validate_whatsapp_number($phone_number);
+     if (is_wp_error($whatsapp_check)) {
+         wp_send_json_error(['message' => $whatsapp_check->get_error_message()], 400);
+         return;
+     }
+     
+     $ip_address = $this->get_ip_address(); if ($this->is_rate_limited($ip_address)) { wp_send_json_error(['message' => 'Você fez muitas tentativas. Por favor, aguarde alguns minutos.'], 429); return; // [cite: 1940]
      } $otp_code = wp_rand(100000, 999999); $message  = "Seu código de verificação é: {$otp_code}"; // [cite: 1941]
      set_transient('ds_otp_' . $phone_number, $otp_code, 5 * MINUTE_IN_SECONDS); $this->log_rate_limit_attempt($ip_address); $result = $this->send_whatsapp_message($phone_number, $message); // [cite: 1942]
      if (is_wp_error($result)) { wp_send_json_error(['message' => 'Falha ao enviar o código. Tente novamente mais tarde.'], 500); // [cite: 1943]
@@ -293,20 +302,26 @@ final class DS_Registro_Avancado_Plugin {
 
     private function send_whatsapp_message(string $number, string $message) {
         // Usar novo sistema de templates e filas
-        if (class_exists('WhatsApp_Message_Templates')) {
-            return WhatsApp_Message_Templates::send_otp($number, $message);
+        if (class_exists('\WhatsApp_Message_Templates')) {
+            $result = \WhatsApp_Message_Templates::send_otp($number, $message);
+            error_log('DS-OTP: Tentativa de envio via templates: ' . ($result ? 'sucesso' : 'falha'));
+            if ($result) return true;
         }
         
-        // Fallback para método antigo
-        $api_url = get_option('conector_whatsapp_url');
-        $api_key = get_option('conector_whatsapp_apikey');
-        $instance = get_option('conector_whatsapp_instance');
+        // Fallback: usar configurações antigas do conector
+        $api_key = get_option('conector_whatsapp_api_key') ?: get_option('conector_whatsapp_apikey');
+        $instance = get_option('conector_whatsapp_instance_name') ?: get_option('conector_whatsapp_instance');
         
-        if (empty($api_url) || empty($api_key) || empty($instance)) {
+        error_log('DS-OTP: Send - API Key: ' . ($api_key ? 'encontrada' : 'não encontrada'));
+        error_log('DS-OTP: Send - Instance: ' . ($instance ? $instance : 'não encontrada'));
+        
+        if (empty($api_key) || empty($instance)) {
+            error_log('DS-OTP: Configurações da API não encontradas');
             return new WP_Error('conector_not_configured', 'Configurações da API não encontradas.');
         }
         
-        $full_url = rtrim($api_url, '/') . '/message/sendText/' . $instance;
+        $api_url = get_option('conector_whatsapp_url');
+        $full_url = rtrim($api_url, '/') . "/message/sendText/$instance";
         $response = wp_remote_post($full_url, [
             'timeout' => 30,
             'headers' => [
@@ -314,23 +329,29 @@ final class DS_Registro_Avancado_Plugin {
                 'apikey' => $api_key
             ],
             'body' => wp_json_encode([
-                'number' => $number,
+                'number' => ltrim($number, '+'),
                 'text' => $message
             ])
         ]);
         
-        if (is_wp_error($response)) return $response;
+        error_log('DS-OTP: Resposta da API: ' . wp_remote_retrieve_response_code($response));
+        
+        if (is_wp_error($response)) {
+            error_log('DS-OTP: Erro WP: ' . $response->get_error_message());
+            return $response;
+        }
         
         $code = wp_remote_retrieve_response_code($response);
         if ($code === 200 || $code === 201) return true;
         
         $error = json_decode(wp_remote_retrieve_body($response), true);
+        error_log('DS-OTP: Erro API: ' . wp_remote_retrieve_body($response));
         return new WP_Error('api_error', "Erro na API ($code): " . ($error['message'] ?? 'Erro desconhecido.'));
     }
     private function normalize_phone(string $raw_phone): string {
         // Usar nova classe de formatação se disponível
-        if (class_exists('WhatsApp_Phone_Formatter')) {
-            return WhatsApp_Phone_Formatter::format_for_storage($raw_phone);
+        if (class_exists('\WhatsApp_Phone_Formatter')) {
+            return \WhatsApp_Phone_Formatter::format_for_storage($raw_phone);
         }
         
         // Fallback para método antigo
@@ -350,6 +371,55 @@ final class DS_Registro_Avancado_Plugin {
      }
     private function log_rate_limit_attempt(string $ip): void { $key = 'ds_otp_limit_' . $ip; // [cite: 1976]
      set_transient($key, (get_transient($key) ?: 0) + 1, 5 * MINUTE_IN_SECONDS); } // [cite: 1977]
+    private function validate_whatsapp_number(string $phone_number): bool|WP_Error {
+        // Tentar diferentes nomes de opções
+        $api_key = get_option('conector_whatsapp_api_key') ?: get_option('conector_whatsapp_apikey');
+        $instance = get_option('conector_whatsapp_instance_name') ?: get_option('conector_whatsapp_instance');
+        
+        error_log('DS-OTP: API Key: ' . ($api_key ? 'encontrada' : 'não encontrada'));
+        error_log('DS-OTP: Instance: ' . ($instance ? $instance : 'não encontrada'));
+        
+        if (empty($api_key) || empty($instance)) {
+            return new WP_Error('api_not_configured', 'API do WhatsApp não configurada.');
+        }
+        
+        $clean_number = preg_replace('/[^0-9]/', '', $phone_number);
+        $api_url = get_option('conector_whatsapp_url');
+        $url = rtrim($api_url, '/') . "/chat/whatsappNumbers/$instance";
+        
+        $response = wp_remote_post($url, [
+            'timeout' => 15,
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'apikey' => $api_key
+            ],
+            'body' => wp_json_encode([
+                'numbers' => [$clean_number]
+            ])
+        ]);
+        
+        if (is_wp_error($response)) {
+            return new WP_Error('validation_failed', 'Não foi possível validar o número.');
+        }
+        
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            return new WP_Error('validation_failed', 'Erro ao validar número WhatsApp.');
+        }
+        
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        if (!is_array($body) || empty($body[0])) {
+            return new WP_Error('validation_failed', 'Resposta inválida da API.');
+        }
+        
+        $result = $body[0];
+        if (!isset($result['exists']) || !$result['exists']) {
+            return new WP_Error('invalid_whatsapp', 'Este número não possui WhatsApp ativo.');
+        }
+        
+        return true;
+    }
+    
     private function get_ip_address(): string { foreach (['HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $key) { if (!empty($_SERVER[$key])) { foreach (explode(',', $_SERVER[$key]) as $ip) { if (filter_var(trim($ip), FILTER_VALIDATE_IP)) return trim($ip); // [cite: 1977]
      } } } return 'unknown'; }
     private function get_field_map(array $fields): array {

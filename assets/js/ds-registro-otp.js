@@ -2,7 +2,7 @@
 (function ($) {
     'use strict';
 
-    console.log('DS-OTP JS: Script carregado. (Versão 4.3.3 - Readonly Fix)');
+    console.log('DS-OTP JS: Script carregado. (Versão 4.4.0 - Debug)');
     console.log('Uma peuna correção foi aplicada para garantir que os campos de telefone e código OTP sejam enviados corretamente para validação.');
     window.dsOtpPageInitialized = false;
 
@@ -44,8 +44,21 @@
 
         $formWrapper.on('click.dsOTP.send', selectors.sendButton, function (e) {
             e.preventDefault();
-            const phone = $phoneField.find('input').val();
-            if (!phone || phone.replace(/\D/g, '').length < 10) { $statusDiv.html('<span class="error">' + config.i18n.invalidPhone + '</span>').slideDown(); return; }
+            // Buscar campo de telefone por ID do campo configurado
+            const phoneFieldId = config.field_ids.phone;
+            const $phoneInput = $('#input_' + config.form_id + '_' + phoneFieldId, $formWrapper);
+            const phone = $phoneInput.val() || '';
+            
+            console.log('DS-OTP: Telefone capturado:', phone);
+            console.log('DS-OTP: Campo ID:', phoneFieldId);
+            console.log('DS-OTP: Seletor usado:', '#input_' + config.form_id + '_' + phoneFieldId);
+            console.log('DS-OTP: Campo encontrado:', $phoneInput.length);
+            
+            if (!phone || phone.trim() === '') { 
+                console.log('DS-OTP: Telefone vazio ou inválido');
+                $statusDiv.html('<span class="error">Por favor, digite um número de telefone.</span>').slideDown(); 
+                return; 
+            }
             $sendButton.prop('disabled', true).text(config.i18n.sending);
             $statusDiv.html('<span>' + config.i18n.wait + '</span>').slideDown();
             
@@ -72,8 +85,13 @@
 
         $formWrapper.on('click.dsOTP.verify', selectors.verifyButton, function(e) {
             e.preventDefault();
-            const phone = $phoneField.find('input').val(); 
-            const code = $codeField.find('input').val();
+            // Buscar campos por ID configurado
+            const phoneFieldId = config.field_ids.phone;
+            const codeFieldId = config.field_ids.code;
+            const $phoneInput = $('#input_' + config.form_id + '_' + phoneFieldId, $formWrapper);
+            const $codeInput = $('#input_' + config.form_id + '_' + codeFieldId, $formWrapper);
+            const phone = $phoneInput.val() || '';
+            const code = $codeInput.val() || '';
             if (!code) { $statusDiv.html('<span class="error">Por favor, insira o código.</span>').slideDown(); return; }
             $verifyButton.prop('disabled', true).text(config.i18n.verifying); 
             $statusDiv.slideUp();
@@ -88,8 +106,8 @@
 
                     // --- CORREÇÃO: Usar 'readonly' em vez de 'disabled' ---
                     // Isso impede a edição, mas garante que os valores sejam enviados para a validação do Gravity Forms.
-                    $phoneField.find('input').prop('readonly', true);
-                    $codeField.find('input').prop('readonly', true);
+                    $phoneInput.prop('readonly', true);
+                    $codeInput.prop('readonly', true);
                     // --- FIM DA CORREÇÃO ---
 
                     $sendButton.prop('disabled', true);

@@ -1,5 +1,9 @@
 # DS Registro Avançado com OTP
 
+**Versão:** 2.1.0  
+**Status:** ✅ TOTALMENTE FUNCIONAL  
+**Última atualização:** 05/11/2025  
+
 Sistema avançado de registro de usuários com verificação OTP via WhatsApp, desenvolvido pela DSantos Info.
 
 ## Descrição
