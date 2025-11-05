@@ -213,7 +213,9 @@ final class DS_Registro_Avancado_Plugin {
         wp_set_current_user($user_id, $email); // [cite: 1927]
         wp_set_auth_cookie($user_id, true, is_ssl()); // [cite: 1927]
 
-        update_user_meta($user_id, 'billing_phone', $phone_raw); // [cite: 1927]
+        // Padronizar e salvar telefone
+        $formatted_phone = $this->normalize_phone($phone_raw);
+        update_user_meta($user_id, 'billing_phone', $formatted_phone);
         
         delete_transient('ds_otp_' . $this->normalize_phone($phone_raw)); // [cite: 1927]
     }
@@ -289,15 +291,61 @@ final class DS_Registro_Avancado_Plugin {
         }
     }
 
-    private function send_whatsapp_message(string $number, string $message) { $api_url = get_option('conector_whatsapp_url'); // [cite: 1968]
-     $api_key = get_option('conector_whatsapp_apikey'); $instance = get_option('conector_whatsapp_instance'); if (empty($api_url) || empty($api_key) || empty($instance)) return new WP_Error('conector_not_configured', 'Configurações da API não encontradas.'); // [cite: 1969]
-     $full_url = rtrim($api_url, '/') . '/message/sendText/' . $instance; $response = wp_remote_post($full_url, ['timeout' => 30, 'headers' => ['Content-Type' => 'application/json', 'apikey' => $api_key], 'body' => wp_json_encode(['number' => $number, 'text' => $message]),]); // [cite: 1970]
-     if (is_wp_error($response)) return $response; $code = wp_remote_retrieve_response_code($response); if ($code === 200 || $code === 201) return true; // [cite: 1971]
-     $error = json_decode(wp_remote_retrieve_body($response), true); return new WP_Error('api_error', "Erro na API ($code): " . ($error['message'] ?? 'Erro desconhecido.')); // [cite: 1972]
-     }
-    private function normalize_phone(string $raw_phone): string { $digits_only = preg_replace('/[^0-9]/', '', $raw_phone); // [cite: 1973]
-     if (strlen($digits_only) > 11 && str_starts_with($digits_only, '55')) { return $digits_only; } if (strlen($digits_only) <= 11) { return '55' . $digits_only; // [cite: 1974]
-     } return $digits_only; }
+    private function send_whatsapp_message(string $number, string $message) {
+        // Usar novo sistema de templates e filas
+        if (class_exists('WhatsApp_Message_Templates')) {
+            return WhatsApp_Message_Templates::send_otp($number, $message);
+        }
+        
+        // Fallback para método antigo
+        $api_url = get_option('conector_whatsapp_url');
+        $api_key = get_option('conector_whatsapp_apikey');
+        $instance = get_option('conector_whatsapp_instance');
+        
+        if (empty($api_url) || empty($api_key) || empty($instance)) {
+            return new WP_Error('conector_not_configured', 'Configurações da API não encontradas.');
+        }
+        
+        $full_url = rtrim($api_url, '/') . '/message/sendText/' . $instance;
+        $response = wp_remote_post($full_url, [
+            'timeout' => 30,
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'apikey' => $api_key
+            ],
+            'body' => wp_json_encode([
+                'number' => $number,
+                'text' => $message
+            ])
+        ]);
+        
+        if (is_wp_error($response)) return $response;
+        
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code === 200 || $code === 201) return true;
+        
+        $error = json_decode(wp_remote_retrieve_body($response), true);
+        return new WP_Error('api_error', "Erro na API ($code): " . ($error['message'] ?? 'Erro desconhecido.'));
+    }
+    private function normalize_phone(string $raw_phone): string {
+        // Usar nova classe de formatação se disponível
+        if (class_exists('WhatsApp_Phone_Formatter')) {
+            return WhatsApp_Phone_Formatter::format_for_storage($raw_phone);
+        }
+        
+        // Fallback para método antigo
+        $digits_only = preg_replace('/[^0-9]/', '', $raw_phone);
+        
+        if (strlen($digits_only) > 11 && str_starts_with($digits_only, '55')) {
+            return $digits_only;
+        }
+        
+        if (strlen($digits_only) <= 11) {
+            return '55' . $digits_only;
+        }
+        
+        return $digits_only;
+    }
     private function is_rate_limited(string $ip): bool { return (get_transient('ds_otp_limit_' . $ip) ?: 0) >= 100; // [cite: 1975]
      }
     private function log_rate_limit_attempt(string $ip): void { $key = 'ds_otp_limit_' . $ip; // [cite: 1976]
